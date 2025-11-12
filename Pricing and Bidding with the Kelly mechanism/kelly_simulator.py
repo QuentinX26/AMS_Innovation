@@ -1,5 +1,5 @@
 """
-kelly_simulator.py
+kelly_simulator.py test
 ------------------
 Simulation événementielle du mécanisme de Kelly avec apprentissage par Best-Response (BR)
 ou par Gradient Ascent (GA), warm-up, initialisation BR des arrivants, contrôleur de prix
