@@ -51,7 +51,9 @@ def run_dynamic(alpha, A, B, tmax, dt_update, lam, C, delta, seed, log_event):
     bids_ts = {i: [] for i in range(1, MAX_PLAYERS + 1)}
     alloc_ts = {i: [] for i in range(1, MAX_PLAYERS + 1)}
 
+    # séries globales
     g_sum_bids, g_price, g_n_players, g_welfare = [], [], [], []
+    g_alloc_total, g_perf = [], []   # nouvelle : allocation totale et performance économique
 
     # Planifie la prochaine arrivée
     def schedule_next_arrival(now):
@@ -110,7 +112,7 @@ def run_dynamic(alpha, A, B, tmax, dt_update, lam, C, delta, seed, log_event):
         bids_alive = {i: p.bid for i, p in players.items() if p.alive}
         alloc = owner.allocate(bids_alive) if bids_alive else {}
 
-        # Enregistre l'état courant
+        # Enregistre l'état courant par joueur
         times.append(sim.time)
         for i in range(1, MAX_PLAYERS + 1):
             b = players[i].bid if (i in players and players[i].alive) else 0.0
@@ -122,6 +124,12 @@ def run_dynamic(alpha, A, B, tmax, dt_update, lam, C, delta, seed, log_event):
         sum_b = float(sum(bids_alive.values())) if bids_alive else 0.0
         price = (sum_b / C) if C > 0 else 0.0
         n_players = int(len(bids_alive))
+
+        # allocation totale à cet instant
+        alloc_total = float(sum(alloc.values())) if alloc else 0.0
+
+        # performance économique : unités de ressource par crédit dépensé
+        perf = alloc_total / sum_b if sum_b > 0 else 0.0
 
         welfare = 0.0
         if bids_alive:
@@ -135,9 +143,14 @@ def run_dynamic(alpha, A, B, tmax, dt_update, lam, C, delta, seed, log_event):
         g_price.append(price)
         g_n_players.append(n_players)
         g_welfare.append(welfare)
+        g_alloc_total.append(alloc_total)
+        g_perf.append(perf)
 
         # Écrit dans le log d'événements
-        log_event.write(f"[t={sim.time:.2f}] BID_UPDATE : N={n_players}, Σb={sum_b:.3f}, p={price:.3f}, welfare={welfare:.3f}\n")
+        log_event.write(
+            f"[t={sim.time:.2f}] BID_UPDATE : N={n_players}, Σb={sum_b:.3f}, "
+            f"alloc_tot={alloc_total:.3f}, perf={perf:.4f}, p={price:.3f}, welfare={welfare:.3f}\n"
+        )
 
         # Replanifie la prochaine mise à jour
         t_next = sim.time + dt_update
@@ -154,6 +167,8 @@ def run_dynamic(alpha, A, B, tmax, dt_update, lam, C, delta, seed, log_event):
         "price": np.asarray(g_price, dtype=float),
         "n_players": np.asarray(g_n_players, dtype=int),
         "welfare": np.asarray(g_welfare, dtype=float),
+        "alloc_total": np.asarray(g_alloc_total, dtype=float),
+        "perf": np.asarray(g_perf, dtype=float),   # performance économique dans le temps
     }
     return times, bids_ts, alloc_ts, globals_dict
 
@@ -233,7 +248,7 @@ def main():
         plt.savefig(outdir / f"player{i}_compare_alpha.png")
         plt.close()
 
-    # Graphiques globaux
+        # Graphiques globaux
     def plot_global(attr, title, ylabel, fname):
         plt.figure(figsize=(9, 5))
         for alpha, (times, _, __, g) in results.items():
@@ -247,16 +262,56 @@ def main():
         plt.savefig(outdir / fname)
         plt.close()
 
-    # Ces trois restent comparatifs (α affichés)
-    plot_global("sum_bids", "Σ des enchères (t) — comparaison α", "Σ des enchères (crédits)", "global_compare_sum_bids.png")
-    plot_global("price", "Prix p(t) = Σ b / C — comparaison α", "Prix p(t) (crédits/unité)", "global_compare_price.png")
-    plot_global("welfare", "Welfare total W(t) — comparaison α", "W(t) (unités d’utilité)", "global_compare_welfare.png")
+    # Comparaisons globales "classiques"
+    plot_global(
+        "sum_bids",
+        "Σ des enchères (t) — comparaison α",
+        "Σ des enchères (crédits)",
+        "global_compare_sum_bids.png",
+    )
+    plot_global(
+        "price",
+        "Prix p(t) = Σ b / C — comparaison α",
+        "Prix p(t) (crédits/unité)",
+        "global_compare_price.png",
+    )
+    plot_global(
+        "welfare",
+        "Welfare total W(t) — comparaison α",
+        "W(t) (unités d’utilité)",
+        "global_compare_welfare.png",
+    )
 
-    # 👉 N(t) : une seule courbe (comme c’est identique pour tous les α avec la même seed)
+    # -------- Performance économique CUMULÉE dans le temps --------
+    plt.figure(figsize=(9, 5))
+    for alpha, (times, _, __, g) in results.items():
+        times_arr = np.asarray(times, dtype=float)
+        dt = args.dt_update
+
+        # intégrales discrètes ≈ somme * dt
+        cum_alloc = np.cumsum(g["alloc_total"]) * dt      # u·s
+        cum_bids  = np.cumsum(g["sum_bids"]) * dt         # cr·s
+
+        # pour éviter la division par ~0
+        eps = 1e-6
+        perf_cum = cum_alloc / (cum_bids + eps)
+
+        plt.plot(times_arr, perf_cum, label=f"α={alpha}")
+
+    plt.title("Performance économique CUMULÉE — comparaison α")
+    plt.xlabel("Temps simulé (secondes)")
+    plt.ylabel("Perf_cum(t) = (∫ Σ alloc) / (∫ Σ b)  (u/cr)")
+    plt.legend()
+    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.tight_layout()
+    plt.savefig(outdir / "global_compare_performance.png")
+    plt.close()
+
+    # 👉 N(t) : une seule courbe (même seed pour tous les α)
     plt.figure(figsize=(9, 5))
     first_alpha = next(iter(results))  # prend le premier (peu importe lequel)
-    times, _, __, g = results[first_alpha]
-    plt.plot(times, g["n_players"])
+    times, _, __, g0 = results[first_alpha]
+    plt.plot(times, g0["n_players"])
     plt.title("Nombre de joueurs actifs N(t)")
     plt.xlabel("Temps simulé (secondes)")
     plt.ylabel("N(t) (joueurs)")
@@ -264,6 +319,7 @@ def main():
     plt.tight_layout()
     plt.savefig(outdir / "global_n_players_single.png")
     plt.close()
+    
 
     print(f"\n✅ Simulation terminée.")
     print(f"Résumé écrit dans : {summary_path}")
