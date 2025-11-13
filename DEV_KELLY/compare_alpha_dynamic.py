@@ -178,15 +178,24 @@ def run_dynamic(alpha, A, B, tmax, dt_update, lam, C, delta, seed, log_event):
 # -------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--A", type=float, default=0.5)
-    ap.add_argument("--B", type=float, default=0.25)
-    ap.add_argument("--tmax", type=float, default=200.0)
-    ap.add_argument("--dt_update", type=float, default=0.5)
-    ap.add_argument("--lam", type=float, default=1.0)
-    ap.add_argument("--C", type=float, default=10.0)
-    ap.add_argument("--delta", type=float, default=0.0)
-    ap.add_argument("--seed", type=int, default=123)
+    ap.add_argument("--A", type=float, default=0.5,
+        help="Taux d'arrivée des joueurs (processus de Poisson). Contrôle la fréquence des arrivées.")
+    ap.add_argument("--B", type=float, default=0.25,
+        help="Taux de départ des joueurs. Plus B est grand, plus les joueurs quittent vite le système.")
+    ap.add_argument("--tmax", type=float, default=200.0,
+        help="Temps maximal de simulation.")
+    ap.add_argument("--dt_update", type=float, default=0.5,
+        help="Intervalle de temps entre deux mises à jour des enchères (best-response).")
+    ap.add_argument("--lam", type=float, default=1.0,
+        help="Paramètre lambda, coût marginal des enchères dans le calcul du welfare.")
+    ap.add_argument("--C", type=float, default=10.0,
+        help="Capacité totale de la ressource à partager (Kelly allocation).")
+    ap.add_argument("--delta", type=float, default=0.0,
+        help="Demande fictive ajoutée dans Kelly (sert de prix plancher).")
+    ap.add_argument("--seed", type=int, default=123,
+        help="Seed pour le générateur aléatoire, pour rendre les simulations reproductibles.")
     args = ap.parse_args()
+
 
     outdir = Path(__file__).resolve().parent
     results = {}
@@ -209,11 +218,14 @@ def main():
             total_resource = args.C
             total_money_spent = float(np.sum(g["sum_bids"])) * args.dt_update
             final_alloc_total = sum(alloc_ts[i][-1] for i in range(1, MAX_PLAYERS + 1) if alloc_ts[i])
+            total_alloc_cum = float(np.sum(g["alloc_total"])) * args.dt_update
+
 
             log.write(f"\n--- Résumé GLOBAL α={alpha} ---\n")
             log.write(f"• Ressource totale disponible : {total_resource:.2f} unités\n")
             log.write(f"• Argent total dépensé (Σ b(t)·Δt) : {total_money_spent:.2f} crédits\n")
             log.write(f"• Ressources allouées à la fin : {final_alloc_total:.4f} unités\n")
+            log.write(f"• Ressource totale consommée sur la simulation (Σ alloc_tot(t)·Δt) : {total_alloc_cum:.4f} u·s\n")
 
             # Stats par joueur
             player_stats = []
